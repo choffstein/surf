@@ -2,7 +2,7 @@
   :description "FIXME: write"
   :dependencies [[org.clojure/clojure "1.2.0"]
                  [org.clojure/clojure-contrib "1.2.0"]
-		 [net.dnolen.clj-cont "0.1.0"]
+		 [delimc "0.1.0"]
 		 [compojure "0.6.2"]
 		 [ring "0.3.7"]
 		 [net.cgrand/moustache "1.0.0"]
