@@ -66,10 +66,10 @@
      ;; creates a new page, and redirects to i
      (do
        (reset
-	(let [new-component (callback component)
-	      new-page (tabula-rasa new-component)
-	      garbage (shift k
-			     (reset! cc k))]
+	(let [garbage (shift k
+			     (reset! cc k))
+	      new-component (callback component)
+	      new-page (tabula-rasa new-component)]
 	      (do (add-page-to-session session new-page)
 		  (redirect (construct-url new-component session new-page)))))
 
