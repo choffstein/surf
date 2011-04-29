@@ -7,7 +7,6 @@
 		 [ring "0.3.7"]
 		 [net.cgrand/moustache "1.0.0"]
 		 [hiccup "0.3.4"]]
-  :dev-dependencies [[swank-clojure "1.3.0-SNAPSHOT"]
-		     [marginalia "0.5.0" :exclusions [hiccup]]]
+  :dev-dependencies [[swank-clojure "1.3.0-SNAPSHOT"]]
   :main surf.core
   :aot [surf.core])

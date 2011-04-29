@@ -4,7 +4,7 @@
 	[ring.util.response]
 	[ring.middleware.params]
 	[net.cgrand.moustache]
-	[hiccup core page-helpers]
+	[hiccup core page-helpers form-helpers]
 	[delimc.core])
   (:require [compojure.route :as route]
 	    [clojure.contrib.string :as string])
@@ -50,18 +50,23 @@
 (defn tabula-rasa [component]
   (page. (generate-uuid) component (atom [])))
 
-(defn update-page-helper [component component-to-update fn]
+;; could probably replace true / false passing with continuations
+(defn update-page-helper [component component-to-update fn callback-input]
   (if (= (id component) (id component-to-update))
-    (fn component-to-update)
+    [true (apply fn (cons component-to-update callback-input))]
     (let
 	[children (children component)
-	 updated-children (map
-			   #(update-page-helper % component-to-update fn) children)]
-      (update-children component updated-children))))
+	 updates (map
+		  #(update-page-helper % component-to-update fn callback-input) children)
+	 did-update (reduce #(or %1 (first %2)) true updates)
+	 updated-children (map second updates)]
+      (if did-update
+	[true (update-children component updated-children)]
+	[false component]))))
 
-(defn update-page-with [page component fn]
+(defn update-page-with [page component fn callback-input]
   (let [root-component (:root-component page)]
-    (tabula-rasa (update-page-helper root-component component fn))))
+    (tabula-rasa (second (update-page-helper root-component component fn callback-input)))))
 
 (defn render-page [session page]
   (let [root-component (:root-component page)]
@@ -74,7 +79,7 @@
     (str (:nom (:root-component page)) "?_s=" (:id session) "&_p=" (:id page) extension)))
   
 ;;;;;;;; CALLBACKS
-(defn construct-callback [component callback session page]
+(defn construct-callback [component callback session page & input-order]
   (let [cc (atom nil)
 	existing-callbacks (:callbacks page)
 	callback-id (count @existing-callbacks)]
@@ -82,9 +87,17 @@
     ;; creates a new page, and redirects to i
     (do
       (reset
-       (let [garbage (shift k
-			    (reset! cc k))
-	     new-page (update-page-with page component callback)]
+       (let [callback-input-hash (shift k
+					(reset! cc k))
+	     
+	     callback-input (if (not (nil? input-order))
+			      (map #(get callback-input-hash %) input-order)
+			      [])
+	     _ (println input-order)
+	     _ (println callback-input-hash)
+	     _ (println callback-input)
+	     
+	     new-page (update-page-with page component callback callback-input)]
 	 (do (add-page-to-session session new-page)
 	     (redirect (construct-url session new-page)))))
 
@@ -139,7 +152,7 @@
   (let [root-component (new-multiple-counters-component
 			[(new-counter-component 0) (new-counter-component 0)])
 	page (tabula-rasa root-component)]
-    page))				
+    page))
 
 ;;;;;;;;;;;;; PARAMS
 (defn- split-params [params]
@@ -160,34 +173,40 @@
 
 (defn- handle-request [req]
   (let [params (extract-params req)
+
 	session-id (get params "_s") 
+	session (get @sessions session-id)
+	
 	page-id (get params "_p")
+	page (if (not (nil? session))
+	       (get @(:pages session) page-id)
+	       nil)
+
 	action-id-str (get params "_a")
 	action-id (if (not (nil? action-id-str)) (Integer/parseInt action-id-str) nil)
 	component-id (get params "component")]
     ;; if we don't have a session yet,
     ;; construct one and register a new environment
     ;; and go to the component root
-    (if (nil? session-id)
+    (if (or (nil? session) (nil? page))
       (let [root-page ((get component-root-page component-id))
 	    session (new-session root-page)]
 	(do (swap! sessions assoc (:id session) session)
 	    (response (render-page session root-page))))
       ;; we already have a session -- is this an action?
-      (let [session (get @sessions session-id)
-	    page (get @(:pages session) page-id)]
-	(if (nil? action-id)
-	  ;; no, so just render the current environment
-	  (response (render-page session page))
-	  ;; otherwise, update the environment based on the action,
-	  ;; add it to the session, and redirect to the
-	  ;; new url
-	  (let [callback (nth @(:callbacks page) action-id)]
-	    (@callback nil))))))) ;; nil is a hack here
+      (if (nil? action-id)
+	;; no, so just render the current environment
+	(response (render-page session page))
+	;; otherwise, update the environment based on the action,
+	;; add it to the session, and redirect to the
+	;; new url
+	(let [callback (nth @(:callbacks page) action-id)
+	      form-params (:form-params req)]
+	  (@callback form-params))))))
      
 (def main-routes
      (app
-      [_] (fn [req] (handle-request req))))
+      [_] (wrap-params (fn [req] (handle-request req)))))
       
 (defn run []
   (run-jetty #'main-routes {:port 9000 :join? false})) 
