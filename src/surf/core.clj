@@ -17,11 +17,10 @@
 
 (defrecord session [id pages])
 (defn new-session [page]
-  (session. (generate-uuid) (ref {(:id page) page})))
+  (session. (generate-uuid) (atom {(:id page) page})))
 
 (defn add-page-to-session [session page]
-  (dosync
-   (alter (:pages session) assoc (:id page) page)))
+   (swap! (:pages session) assoc (:id page) page))
 
 ;;;;;;;;;; HTML
 (defn html-doc
@@ -45,7 +44,7 @@
 (defrecord page [id root-component callbacks])
 
 (defn tabula-rasa [component]
-  (page. (generate-uuid) component (ref [])))
+  (page. (generate-uuid) component (atom [])))
 
 (defn render-page [session page]
   (let [root-component (:root-component page)]
@@ -58,23 +57,22 @@
   
 ;;;;;;;; CALLBACKS
 (defn construct-callback [component callback session page]
-  (dosync
-   (let [cc (atom nil)
-	 existing-callbacks (:callbacks page)
-	 callback-id (count @existing-callbacks)]
-     ;; create a continuation that executes the call-back,
-     ;; creates a new page, and redirects to i
-     (do
-       (reset
-	(let [garbage (shift k
-			     (reset! cc k))
-	      new-component (callback component)
-	      new-page (tabula-rasa new-component)]
-	      (do (add-page-to-session session new-page)
-		  (redirect (construct-url new-component session new-page)))))
+  (let [cc (atom nil)
+	existing-callbacks (:callbacks page)
+	callback-id (count @existing-callbacks)]
+    ;; create a continuation that executes the call-back,
+    ;; creates a new page, and redirects to i
+    (do
+      (reset
+       (let [garbage (shift k
+			    (reset! cc k))
+	     new-component (callback component)
+	     new-page (tabula-rasa new-component)]
+	 (do (add-page-to-session session new-page)
+	     (redirect (construct-url new-component session new-page)))))
 
-       (alter existing-callbacks conj cc)
-       (construct-url component session page callback-id)))))
+      (swap! existing-callbacks conj cc)
+      (construct-url component session page callback-id))))
 
 ;;;;;;;;;;; COUNTER COMPONENT
 (defn increase-counter [counter-component]
@@ -140,9 +138,8 @@
 	   ;; otherwise, update the environment based on the action,
 	   ;; add it to the session, and redirect to the
 	   ;; new url
-	   (let [callback (nth @(:callbacks page) action-id)
-		 _ (println callback)]
-	     (@callback nil)))))))) ;;nil is a hack here
+	   (let [callback (nth @(:callbacks page) action-id)]
+	     (@callback nil)))))))) ;; nil is a hack here
      
 (def main-routes
      (app
