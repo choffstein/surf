@@ -13,7 +13,7 @@
 (defn- generate-uuid [] (.toString (UUID/randomUUID)))
 
 ;;;;;;;;;; SESSIONS
-(def sessions (ref {}))
+(def sessions (atom {}))
 
 (defrecord session [id pages])
 (defn new-session [page]
@@ -114,32 +114,31 @@
      {"counter" counter-root})
 
 (defn- handle-request [req]
-  (dosync
-   (let [params (extract-params req)
-	 session-id (get params "_s") 
-	 page-id (get params "_p")
-	 action-id-str (get params "_a")
-	 action-id (if (not (nil? action-id-str)) (Integer/parseInt action-id-str) nil)
-	 component-id (get params "component")]
-     ;; if we don't have a session yet,
-     ;; construct one and register a new environment
-     ;; and go to the component root
-     (if (nil? session-id)
-       (let [root-page ((get component-root-page component-id))
-	     session (new-session root-page)]
-	 (do (alter sessions assoc (:id session) session)
-	     (response (render-page session root-page))))
-       ;; we already have a session -- is this an action?
-       (let [session (get @sessions session-id)
-	     page (get @(:pages session) page-id)]
-	 (if (nil? action-id)
-	   ;; no, so just render the current environment
-	   (response (render-page session page))
-	   ;; otherwise, update the environment based on the action,
-	   ;; add it to the session, and redirect to the
-	   ;; new url
-	   (let [callback (nth @(:callbacks page) action-id)]
-	     (@callback nil)))))))) ;; nil is a hack here
+  (let [params (extract-params req)
+	session-id (get params "_s") 
+	page-id (get params "_p")
+	action-id-str (get params "_a")
+	action-id (if (not (nil? action-id-str)) (Integer/parseInt action-id-str) nil)
+	component-id (get params "component")]
+    ;; if we don't have a session yet,
+    ;; construct one and register a new environment
+    ;; and go to the component root
+    (if (nil? session-id)
+      (let [root-page ((get component-root-page component-id))
+	    session (new-session root-page)]
+	(do (swap! sessions assoc (:id session) session)
+	    (response (render-page session root-page))))
+      ;; we already have a session -- is this an action?
+      (let [session (get @sessions session-id)
+	    page (get @(:pages session) page-id)]
+	(if (nil? action-id)
+	  ;; no, so just render the current environment
+	  (response (render-page session page))
+	  ;; otherwise, update the environment based on the action,
+	  ;; add it to the session, and redirect to the
+	  ;; new url
+	  (let [callback (nth @(:callbacks page) action-id)]
+	    (@callback nil))))))) ;; nil is a hack here
      
 (def main-routes
      (app
