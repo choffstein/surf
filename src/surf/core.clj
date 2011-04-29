@@ -61,20 +61,20 @@
   (dosync
    (let [cc (atom nil)
 	 existing-callbacks (:callbacks page)
-	 callback-id (count @existing-callbacks)
-	 new-component (callback component)
-	 new-page (tabula-rasa new-component)]
+	 callback-id (count @existing-callbacks)]
      ;; create a continuation that executes the call-back,
      ;; creates a new page, and redirects to i
      (do
        (reset
-	(do (add-page-to-session session new-page)
-	  (redirect
-	   (shift k                 ;; this all seems horribly hackish
-		  (reset! cc k))))))
+	(let [new-component (callback component)
+	      new-page (tabula-rasa new-component)
+	      garbage (shift k
+			     (reset! cc k))]
+	      (do (add-page-to-session session new-page)
+		  (redirect (construct-url new-component session new-page)))))
 
-       (alter existing-callbacks conj [cc (construct-url new-component session new-page)])
-       (construct-url component session page callback-id))))
+       (alter existing-callbacks conj cc)
+       (construct-url component session page callback-id)))))
 
 ;;;;;;;;;;; COUNTER COMPONENT
 (defn increase-counter [counter-component]
@@ -138,8 +138,9 @@
 	   ;; otherwise, update the environment based on the action,
 	   ;; add it to the session, and redirect to the
 	   ;; new url
-	   (let [[callback url] (nth @(:callbacks page) action-id)]
-	     (@callback url))))))))
+	   (let [callback (nth @(:callbacks page) action-id)
+		 _ (println callback)]
+	     (@callback nil)))))))) ;;nil is a hack here
      
 (def main-routes
      (app
