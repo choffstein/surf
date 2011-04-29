@@ -78,10 +78,12 @@
 
 ;;;;;;;;;;; COUNTER COMPONENT
 (defn increase-counter [counter-component]
-  (assoc counter-component :state (inc (:state counter-component))))
+  (do (println "Increase Counter")
+  (assoc counter-component :state (inc (:state counter-component)))))
 
 (defn decrease-counter [counter-component]
-  (assoc counter-component :state (dec (:state counter-component))))
+  (do (println "Decrease Counter")
+  (assoc counter-component :state (dec (:state counter-component)))))
 
 (defrecord counter-component [state]
   Component
