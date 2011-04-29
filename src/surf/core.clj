@@ -38,7 +38,11 @@
 (defprotocol Component
   "A component"
   (render [component session page] "Render the component into html form")
-  (nom [component] "Return the component name"))
+  (nom [component] "Return the component name")
+  (clone [component] "Clones the current component")
+  (children [component] "Child components")
+  (update-children [component children] "Update child components")
+  (id [component] "Return a unique id for the component"))
 
 ;;;;;;;;; ENVIRONMENT
 (defrecord page [id root-component callbacks])
@@ -46,14 +50,28 @@
 (defn tabula-rasa [component]
   (page. (generate-uuid) component (atom [])))
 
+(defn update-page-helper [component component-to-update fn]
+  (if (= (id component) (id component-to-update))
+    (fn component-to-update)
+    (let
+	[children (children component)
+	 updated-children (map
+			   #(update-page-helper % component-to-update fn) children)]
+      (update-children component updated-children))))
+
+(defn update-page-with [page component fn]
+  (let [root-component (:root-component page)]
+    (tabula-rasa (update-page-helper root-component component fn))))
+
 (defn render-page [session page]
   (let [root-component (:root-component page)]
-    (render root-component session page)))
+    (html-doc (:nom root-component)
+	      (render root-component session page))))
 
 ;;;;;;;; URL
-(defn construct-url [component session page & callback-id]
+(defn construct-url [session page & callback-id]
   (let [extension (if (not (nil? callback-id)) (str "&_a=" (first callback-id)) "")]
-    (str (:nom component) "?_s=" (:id session) "&_p=" (:id page) extension)))
+    (str (:nom (:root-component page)) "?_s=" (:id session) "&_p=" (:id page) extension)))
   
 ;;;;;;;; CALLBACKS
 (defn construct-callback [component callback session page]
@@ -66,13 +84,12 @@
       (reset
        (let [garbage (shift k
 			    (reset! cc k))
-	     new-component (callback component)
-	     new-page (tabula-rasa new-component)]
+	     new-page (update-page-with page component callback)]
 	 (do (add-page-to-session session new-page)
-	     (redirect (construct-url new-component session new-page)))))
+	     (redirect (construct-url session new-page)))))
 
       (swap! existing-callbacks conj cc)
-      (construct-url component session page callback-id))))
+      (construct-url session page callback-id))))
 
 ;;;;;;;;;;; COUNTER COMPONENT
 (defn increase-counter [counter-component]
@@ -83,19 +100,46 @@
   (do (println "Decrease Counter")
   (assoc counter-component :state (dec (:state counter-component)))))
 
-(defrecord counter-component [state]
+(defrecord counter-component [id state]
   Component
   (render [self session page]
-	  (html-doc "Counter"
-		    [:a {:href (construct-callback self decrease-counter session page)} "--"]
-		    [:b (:state self)]
-		    [:a {:href (construct-callback self increase-counter session page)} "++"]))
-  (nom [self] "counter"))
+	  [:div
+	   [:a {:href (construct-callback self decrease-counter session page)} "--"]
+	   [:b (:state self)]
+	   [:a {:href (construct-callback self increase-counter session page)} "++"]])
+  (nom [self] "counter")
+  (clone [self] (counter-component. (generate-uuid) (:state self)))
+  (children [self] [])
+  (update-children [self children] self)
+  (id [self] (:id self)))
+
+(defn new-counter-component [init]
+  (counter-component. (generate-uuid) init))
 
 (defn counter-root []
-  (let [counter (counter-component. 0)
+  (let [counter (new-counter-component 0)
 	page (tabula-rasa counter)]
     page))
+
+;;;;;;;;;;;;; MULTIPLE COUNTERS COMPONENT
+(defrecord multiple-counters-component [id counters]
+  Component
+  (render [self session page]
+	  (map #(render % session page) counters))
+  (nom [self] "page")
+  (clone [self] (multiple-counters-component. (generate-uuid) (map clone counters)))
+  (children [self] (:counters self))
+  (update-children [self children] (multiple-counters-component. (generate-uuid) children))
+  (id [self] (:id self)))
+
+(defn new-multiple-counters-component [counters]
+  (multiple-counters-component. (generate-uuid) counters))
+
+(defn multiple-counters-root []
+  (let [root-component (new-multiple-counters-component
+			[(new-counter-component 0) (new-counter-component 0)])
+	page (tabula-rasa root-component)]
+    page))				
 
 ;;;;;;;;;;;;; PARAMS
 (defn- split-params [params]
@@ -111,7 +155,8 @@
 
 ;;;;;;;;;;;;; COMPONENT REGISTRY
 (def component-root-page
-     {"counter" counter-root})
+     {"counter" counter-root
+      "index" multiple-counters-root})
 
 (defn- handle-request [req]
   (let [params (extract-params req)
